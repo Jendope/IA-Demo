@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
 from dotenv import load_dotenv
 
 load_dotenv()  # Load environment variables from .env file
@@ -97,7 +97,7 @@ def extract_product_name():
                 'role': Role.USER,
                 'content': [
                     {'image': local_file_url},
-                    {'text': 'Extract the product name from this image.'}
+                    {'text': 'Extract the full product name from the image, including the brand and any specific variations. For example, if the product is "St. Ives Soothing Body Lotion Oatmeal & Shea Butter," return that exact text. Do not add any extra words or labels.'}
                 ]
             }
         ]
@@ -130,7 +130,7 @@ def detect_barcode_route():
         barcodes = decode(image)
         if barcodes:
             return jsonify({'barcode': barcodes[0].data.decode('utf-8')})
-        return jsonify({'barcode': ''})
+        return jsonify({'barcode': 'N/A'})
     except Exception as e:
         app.logger.error(f"Error during barcode detection: {e}")
         return jsonify({'error': 'Failed to process image for barcode detection'}), 500
@@ -258,7 +258,7 @@ def analyze_image():
                 'role': Role.USER,
                 'content': [
                     {'image': local_file_url},
-                    {'text': 'Identify the product in the image. If you can recognize the brand, provide the brand and product name. If not, provide a general description of the product (e.g., water bottle, lotion).'}
+                    {'text': 'Extract the full product name from the image, including the brand and any specific variations. For example, if the product is "St. Ives Soothing Body Lotion Oatmeal & Shea Butter," return that exact text. Do not add any extra words or labels.'}
                 ]
             }
         ]
@@ -268,8 +268,8 @@ def analyze_image():
         )
 
         if response.status_code == HTTPStatus.OK:
-            description = response.output.choices[0].message.content[0]['text']
-            return jsonify({'description': description})
+            product_name = response.output.choices[0].message.content[0]['text']
+            return jsonify({'product_name': product_name})
         else:
             app.logger.error(f"Error from DashScope API: {response.code} - {response.message}")
             return jsonify({'error': 'Failed to analyze image'}), 500
