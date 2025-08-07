@@ -14,3 +14,6 @@ Werkzeug
 python-dotenv
 Flask-Migrate
 xlsxwriter==3.2.5
+openai
+dashscope
+python-dotenv

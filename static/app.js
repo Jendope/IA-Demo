@@ -78,18 +78,70 @@ document.addEventListener('DOMContentLoaded', function () {
         const hasImages = capturedImages.length > 0;
         document.getElementById('detectBarcodeBtn').disabled = !hasImages;
         document.getElementById('extractTextBtn').disabled = !hasImages;
+        document.getElementById('analyzeImage').disabled = !hasImages;
     }
 
 
 
     // OCR and Barcode logic
-    document.getElementById('detectBarcodeBtn').addEventListener('click', () => {
+    document.getElementById('extractTextBtn').addEventListener('click', () => {
         if (capturedImages.length === 0) return;
         const lastImage = capturedImages[capturedImages.length - 1];
-        fetch('/detect_barcode', {
+        fetch('/extract_product_name', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image_data: lastImage })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.product_name) {
+                document.getElementById('productName').value = data.product_name;
+            } else {
+                alert('Could not extract product name.');
+            }
+        });
+    });
+
+    document.getElementById('analyzeImage').addEventListener('click', () => {
+        if (capturedImages.length === 0) return;
+        const lastImage = capturedImages[capturedImages.length - 1];
+
+        const analyzeBtn = document.getElementById('analyzeImage');
+        const originalHtml = analyzeBtn.innerHTML;
+        analyzeBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Analyzing...`;
+        analyzeBtn.disabled = true;
+
+        fetch('/analyze_image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_data: lastImage })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.description) {
+                document.getElementById('productName').value = data.description;
+            } else {
+                alert('AI analysis failed.');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred during AI analysis.');
+        })
+        .finally(() => {
+            analyzeBtn.innerHTML = originalHtml;
+            analyzeBtn.disabled = capturedImages.length === 0;
+        });
+    });
+
+    document.getElementById('detectBarcodeBtn').addEventListener('click', () => {
+        if (capturedImages.length === 0) return;
+        const lastImage = capturedImages[capturedImages.length - 1];
+        const productName = document.getElementById('productName').value;
+        fetch('/detect_barcode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_data: lastImage, product_name: productName })
         })
         .then(response => response.json())
         .then(data => {
@@ -194,6 +246,67 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(() => loadProducts());
         }
     }
+
+    // AI Image Analysis
+    const analyzeImageBtn = document.getElementById('analyzeImage');
+    const aiAnalysisResult = document.getElementById('aiAnalysis');
+
+    analyzeImageBtn.addEventListener('click', () => {
+        if (capturedImages.length === 0) {
+            alert('Please capture an image first.');
+            return;
+        }
+        const lastImage = capturedImages[capturedImages.length - 1];
+        aiAnalysisResult.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>';
+
+        fetch('/analyze_image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_data: lastImage })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.description) {
+                aiAnalysisResult.innerHTML = `<p>${data.description}</p>`;
+                // Also, populate the product name field
+                document.getElementById('productName').value = data.description;
+            } else {
+                aiAnalysisResult.innerHTML = '<p class="text-danger">Failed to analyze image.</p>';
+            }
+        })
+        .catch(error => {
+            console.error('Error during AI analysis:', error);
+            aiAnalysisResult.innerHTML = '<p class="text-danger">An error occurred during analysis.</p>';
+        });
+    });
+
+    document.getElementById('analyzeImage').addEventListener('click', () => {
+        if (capturedImages.length === 0) {
+            alert('Please capture or upload an image first.');
+            return;
+        }
+
+        const lastImage = capturedImages[capturedImages.length - 1];
+        analysisResult.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div><p class="mt-2">Analyzing image...</p></div>';
+        aiAnalysisModal.show();
+
+        fetch('/analyze_image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_data: lastImage })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                analysisResult.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            } else {
+                analysisResult.innerHTML = `<div class="alert alert-success">${data.description}</div>`;
+            }
+        })
+        .catch(error => {
+            analysisResult.innerHTML = `<div class="alert alert-danger">Error analyzing image: ${error.message}</div>`;
+        });
+    });
 
     // Data management
     document.getElementById('exportExcel').addEventListener('click', () => {

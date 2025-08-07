@@ -1,7 +1,10 @@
 import os
 import cv2
 import numpy as np
-from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from pyzbar.pyzbar import decode
@@ -12,9 +15,18 @@ from io import BytesIO
 from PIL import Image
 from config import Config
 from datetime import datetime
+import dashscope
+from dashscope.api_entities.dashscope_response import Role
+from http import HTTPStatus
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
+# Configure the DashScope client
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+dashscope.base_http_api_url = "https://dashscope-intl.aliyuncs.com/api/v1"
+if not dashscope.api_key:
+    print("Warning: DASHSCOPE_API_KEY is not set. Please update your .env file.")
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -58,6 +70,55 @@ def read_image_from_data_url(data_url):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/extract_product_name', methods=['POST'])
+def extract_product_name():
+    data = request.get_json()
+    if 'image_data' not in data:
+        return jsonify({'error': 'No image data'}), 400
+
+    try:
+        header, encoded = data['image_data'].split(',', 1)
+        image_data = base64.b64decode(encoded)
+        
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
+
+        temp_image_path = os.path.join(upload_folder, 'temp_product_name_image.png')
+        with open(temp_image_path, 'wb') as f:
+            f.write(image_data)
+
+        abs_temp_image_path = os.path.abspath(temp_image_path)
+        local_file_url = f'file://{abs_temp_image_path}'
+
+        messages = [
+            {
+                'role': Role.USER,
+                'content': [
+                    {'image': local_file_url},
+                    {'text': 'Extract the product name from this image.'}
+                ]
+            }
+        ]
+        response = dashscope.MultiModalConversation.call(
+            model='qwen-vl-max',
+            messages=messages
+        )
+
+        if response.status_code == HTTPStatus.OK:
+            product_name = response.output.choices[0].message.content[0]['text']
+            return jsonify({'product_name': product_name})
+        else:
+            app.logger.error(f"Error from DashScope API: {response.code} - {response.message}")
+            return jsonify({'error': 'Failed to extract product name'}), 500
+
+    except Exception as e:
+        app.logger.error(f"Error during product name extraction: {e}")
+        return jsonify({'error': 'Failed to extract product name'}), 500
+    finally:
+        if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
 
 @app.route('/detect_barcode', methods=['POST'])
 def detect_barcode_route():
@@ -169,6 +230,58 @@ def set_batch():
     except (ValueError, TypeError) as e:
         return jsonify({'success': False, 'error': 'Invalid data format'}), 400
 
+@app.route('/analyze_image', methods=['POST'])
+def analyze_image():
+    data = request.get_json()
+    if 'image_data' not in data:
+        return jsonify({'error': 'No image data'}), 400
+
+    try:
+        # Save the base64 image to a temporary file
+        header, encoded = data['image_data'].split(',', 1)
+        image_data = base64.b64decode(encoded)
+        
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
+
+        temp_image_path = os.path.join(upload_folder, 'temp_analysis_image.png')
+        with open(temp_image_path, 'wb') as f:
+            f.write(image_data)
+
+        # Get the absolute path for the local file URL
+        abs_temp_image_path = os.path.abspath(temp_image_path)
+        local_file_url = f'file://{abs_temp_image_path}'
+
+        messages = [
+            {
+                'role': Role.USER,
+                'content': [
+                    {'image': local_file_url},
+                    {'text': 'Identify the product in the image. If you can recognize the brand, provide the brand and product name. If not, provide a general description of the product (e.g., water bottle, lotion).'}
+                ]
+            }
+        ]
+        response = dashscope.MultiModalConversation.call(
+            model='qwen-vl-max',
+            messages=messages
+        )
+
+        if response.status_code == HTTPStatus.OK:
+            description = response.output.choices[0].message.content[0]['text']
+            return jsonify({'description': description})
+        else:
+            app.logger.error(f"Error from DashScope API: {response.code} - {response.message}")
+            return jsonify({'error': 'Failed to analyze image'}), 500
+
+    except Exception as e:
+        app.logger.error(f"Error during image analysis: {e}")
+        return jsonify({'error': 'Failed to analyze image'}), 500
+    finally:
+        # Clean up the temporary file
+        if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+
 @app.route('/export_excel', methods=['GET'])
 def export_excel():
     products = Product.query.all()
@@ -206,13 +319,32 @@ def serve_upload(filename):
 @app.route('/reset_data', methods=['POST'])
 def reset_data():
     try:
-        db.session.query(Product).delete()
-        save_batch_config({'prefix': 'A', 'index': 1})
-        db.session.commit()
+        app.logger.info("--- Starting data reset process ---")
+        # Clear the uploads folder
+        # app.logger.info(f"Upload folder is: {upload_folder}")
+        # if os.path.exists(upload_folder):
+        #     app.logger.info("Upload folder exists. Clearing files...")
+        #     for filename in os.listdir(upload_folder):
+        #         file_path = os.path.join(upload_folder, filename)
+        #         if os.path.isfile(file_path) and filename != '.gitkeep':
+        #             app.logger.info(f"Deleting file: {file_path}")
+        #             os.unlink(file_path)
+        #     app.logger.info("Finished clearing upload folder.")
+        # else:
+        #     app.logger.info("Upload folder does not exist. Skipping file clearing.")
+
+        # Reset the database
+        app.logger.info("Resetting database...")
+        # db.session.query(Product).delete()
+        app.logger.info("Products deleted. Resetting batch config...")
+        # save_batch_config({'prefix': 'A', 'index': 1})
+        app.logger.info("Batch config reset. Committing changes...")
+        # db.session.commit()
+        app.logger.info("--- Data reset process completed successfully ---")
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Error resetting data: {e}")
+        app.logger.error(f"--- ERROR during data reset: {e} ---")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
