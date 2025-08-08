@@ -282,8 +282,8 @@ def analyze_image():
         if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
             os.remove(temp_image_path)
 
-@app.route('/export_excel', methods=['GET'])
-def export_excel():
+@app.route('/export_csv', methods=['GET'])
+def export_csv():
     products = Product.query.all()
     if not products:
         return "No data to export", 404
@@ -301,15 +301,14 @@ def export_excel():
 
     df = pd.DataFrame(data_for_df)
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Products')
+    df.to_csv(output, index=False)
     output.seek(0)
     
     return send_file(
         output, 
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
+        mimetype='text/csv', 
         as_attachment=True, 
-        download_name='products.xlsx'
+        download_name='products.csv'
     )
 
 @app.route('/uploads/<path:filename>')

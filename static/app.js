@@ -239,8 +239,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
     // Data management
-    document.getElementById('exportExcel').addEventListener('click', () => {
-        window.location.href = '/export_excel';
+    document.getElementById('exportCsv').addEventListener('click', () => {
+        window.location.href = '/export_csv';
     });
 
     document.getElementById('resetDataBtn').addEventListener('click', () => {
